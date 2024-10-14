@@ -1,0 +1,12 @@
+version: '3'
+services:
+  flask-app:
+    build: .
+    environment:
+      FLASK_ENV: development
+      # Point to your Unraid PostgreSQL instance here
+      SQLALCHEMY_DATABASE_URI: postgresql://myuser:mypassword@<unraid_ip>:5432/mydb
+    ports:
+      - "5001:5001"
+    volumes:
+      - .:/app
