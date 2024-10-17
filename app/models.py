@@ -1,6 +1,6 @@
+from datetime import datetime
 from . import db
 
-# Character Model
 class Character(db.Model):
     __tablename__ = 'characters'
     id = db.Column(db.Integer, primary_key=True)
@@ -10,48 +10,51 @@ class Character(db.Model):
     xp = db.Column(db.Integer, nullable=False)
     skill_points = db.Column(db.Integer, nullable=False)
     name = db.Column(db.String(50), nullable=True, default='New Character')
+    max_health = db.Column(db.Integer, nullable=False, default=10)
+    health = db.Column(db.Integer, nullable=False, default=10)
+    max_energy = db.Column(db.Integer, nullable=False, default=10)
+    starting_area_id = db.Column(db.Integer, db.ForeignKey('starting_areas.id'), nullable=False)
 
-    # Relationship to track the character's skills
-    character_skills = db.relationship('CharacterSkill', backref='character_ref', lazy=True)
+    character_tasks = db.relationship('CharacterTask', back_populates='character', lazy=True)
+    character_skills = db.relationship('CharacterSkill', back_populates='character', lazy=True)
+    resources = db.relationship('CharacterResources', back_populates='character', lazy=True)
 
-class CharacterSkill(db.Model):
-    __tablename__ = 'character_skills'
+class experienceForLevel(db.Model):
+    __tablename__ = 'experience_for_level'
+    id = db.Column(db.Integer, primary_key=True)
+    level = db.Column(db.Integer, nullable=False)
+    experience = db.Column(db.Integer, nullable=False)
+
+class CharacterTask(db.Model):
+    __tablename__ = 'character_tasks'
     id = db.Column(db.Integer, primary_key=True)
     character_id = db.Column(db.Integer, db.ForeignKey('characters.id'), nullable=False)
-    skill_id = db.Column(db.Integer, db.ForeignKey('skills.id'), nullable=False)
-    level = db.Column(db.Integer, nullable=False)  # Skill level of the character
+    task_id = db.Column(db.Integer, db.ForeignKey('tasks.id'), nullable=False)
+    
+    # Task state: available, completed, failed, in_progress, etc.
+    state = db.Column(db.String(50), nullable=False, default='in_progress')
+    
+    # Timestamp of the last state change
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Use 'character_ref' to avoid conflict
-    character = db.relationship('Character', backref='skills')
-    skill = db.relationship('Skill', backref='character_skills')
+    # Update the relationship with Character
+    character = db.relationship('Character', back_populates='character_tasks')
 
-
-class Resource(db.Model):
-    __tablename__ = 'resources'  # Explicitly specifying plural table name
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), nullable=False)
-    description = db.Column(db.String(200), nullable=False)
-    type = db.Column(db.String(50), nullable=False)
-
-    def __repr__(self):
-        return f'<Resource {self.name}>'
+    # Task relationship
+    task = db.relationship('Task', back_populates='character_tasks')
 
 class CharacterResources(db.Model):
-    __tablename__ = 'character_resources'  # Explicitly specifying plural table name
+    __tablename__ = 'character_resources'
     id = db.Column(db.Integer, primary_key=True)
     quantity = db.Column(db.Integer, nullable=False)
     character_id = db.Column(db.Integer, db.ForeignKey('characters.id'), nullable=False)
-    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False)
+    resource_id = db.Column(db.Integer, db.ForeignKey('world_resources.id'), nullable=False)
 
-class CharacterStat(db.Model):  # Changed to CharacterStat for naming consistency
-    __tablename__ = 'character_stats'  # Plural table name
-    id = db.Column(db.Integer, primary_key=True)
-    character_id = db.Column(db.Integer, db.ForeignKey('characters.id'), nullable=False)
-    stat_id = db.Column(db.Integer, db.ForeignKey('stats.id'), nullable=False)
-    value = db.Column(db.Integer, nullable=False)
+    character = db.relationship('Character', back_populates='resources')
+    world_resource = db.relationship('WorldResources', back_populates='character_resources')
 
 class Stat(db.Model):
-    __tablename__ = 'stats'  # Explicitly specifying plural table name
+    __tablename__ = 'stats'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False)
     description = db.Column(db.String(200), nullable=False)
@@ -60,7 +63,7 @@ class Stat(db.Model):
     skills = db.relationship('Skill', secondary='skill_stats', backref='stats')
 
 class Skill(db.Model):
-    __tablename__ = 'skills'  # Explicitly specifying plural table name
+    __tablename__ = 'skills'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255))
@@ -70,9 +73,21 @@ class Skill(db.Model):
     parent_skill_id = db.Column(db.Integer, db.ForeignKey('skills.id'))
     parent_skill = db.relationship('Skill', remote_side=[id], backref='sub_skills')
 
+    # Relationship with CharacterSkill
+    character_skills = db.relationship('CharacterSkill', back_populates='skill')
+
     def __repr__(self):
         return f'<Skill {self.name}>'
 
+class CharacterSkill(db.Model):
+    __tablename__ = 'character_skills'
+    id = db.Column(db.Integer, primary_key=True)
+    character_id = db.Column(db.Integer, db.ForeignKey('characters.id'), nullable=False)
+    skill_id = db.Column(db.Integer, db.ForeignKey('skills.id'), nullable=False)
+    level = db.Column(db.Integer, nullable=False)
+
+    character = db.relationship('Character', back_populates='character_skills')
+    skill = db.relationship('Skill', back_populates='character_skills')
 skill_stats = db.Table('skill_stats',
     db.Column('skill_id', db.Integer, db.ForeignKey('skills.id'), primary_key=True),
     db.Column('stat_id', db.Integer, db.ForeignKey('stats.id'), primary_key=True)
@@ -88,7 +103,6 @@ class StartingArea(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(255))
-    # skill_bonus = db.Column(db.Integer, nullable=False)  # Commented out or removed
 
     # Define the many-to-many relationship between StartingArea and Skill
     skills = db.relationship('Skill', secondary=starting_area_skills, backref='starting_areas')
@@ -119,5 +133,28 @@ class Task(db.Model):
     # Use the many-to-many relationship with skills
     skills = db.relationship('Skill', secondary=task_skills, backref='tasks')
     
+    # Add the relationship with CharacterTask
+    character_tasks = db.relationship('CharacterTask', back_populates='task')
+
     def __repr__(self):
         return f'<Task {self.name}>'
+
+class Quest(db.Model):
+    __tablename__ = 'quests'
+
+    id = db.Column(db.Integer, primary_key=True, index=True)
+    name = db.Column(db.String, index=True)
+    description = db.Column(db.String)
+    stages = db.Column(db.JSON)  # Stores the quest stages, each stage containing choices and outcomes
+
+class WorldResources(db.Model):
+    __tablename__ = 'world_resources'
+    id = db.Column(db.Integer, primary_key=True)
+    resource_name = db.Column(db.String, nullable=False)
+    resource_description = db.Column(db.String, nullable=False)
+    resource_type = db.Column(db.String, nullable=False)
+    region = db.Column(db.String, nullable=True)
+    icon = db.Column(db.String, nullable=True)
+    rarity = db.Column(db.String, nullable=True)
+
+    character_resources = db.relationship('CharacterResources', back_populates='world_resource', lazy=True)
