@@ -161,8 +161,6 @@ def get_tasks_by_starting_area(starting_area_id, character_id):
             for resource_data in required_resources:
                 resource_id = resource_data.get('id')
 
-                print(f"Resource ID: {resource_id}")
-
                 resource_name = WorldResources.query.filter_by(id=resource_id).first().resource_name
                 required_qty = resource_data.get('amount')
                 
@@ -206,19 +204,24 @@ def get_tasks_by_starting_area(starting_area_id, character_id):
                     else:
                         task_state = {"state": "locked", "value": level_difference}
 
-            # Check skill requirements
+            # Check skill requirements and filter out tasks where the skill level difference is greater than 1
+            skip_task = False
             for skill in task.skills:
                 char_skill_level = character_skills.get(skill.id, 0)
                 skill_level_diff = task.skill_id_level_required - char_skill_level if task.skill_id_level_required else None
+                if skill_level_diff is not None and abs(skill_level_diff) > 1:
+                    skip_task = True  # Mark task to be skipped
+                    break
 
-                if skill_level_diff is not None and char_skill_level < task.skill_id_level_required:
-                    if char_skill_level + 1 >= task.skill_id_level_required:
-                        if task_state["state"] != "close_level":
-                            task_state = {"state": "close_skill", "value": skill_level_diff}
-                    elif task_state["state"] not in ["close_level", "close_skill"]:
-                        task_state = {"state": "locked", "value": skill_level_diff}
+            # If the level difference is greater than 1, skip the task
+            if level_difference is not None and abs(level_difference) > 2:
+                continue
 
-            # Append task information
+            # Skip the task if marked
+            if skip_task:
+                continue
+
+            # Append task information if it passes the checks
             tasks_data.append({
                 'id': task.id,
                 'name': task.name,
@@ -238,9 +241,8 @@ def get_tasks_by_starting_area(starting_area_id, character_id):
                 'has_required_resources': resource_check,
                 'state': task_state,
                 'css_class': get_css_class(task_state['state'], task_state['value'])  # Add CSS class
-
             })
-        
+
         # Define a sorting key function
         def task_sort_key(task):
             state = task['state']['state']
@@ -581,6 +583,67 @@ def increase_character_skill():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@admin_bp.route('/character/task_complete', methods=['POST'])
+def task_complete():
+    try:
+        data = request.get_json()
+
+        character_id = data.get('character_id')
+        gains = data.get('gains', {})
+        losses = data.get('losses', {})
+
+        # Fetch the character
+        character = Character.query.get(character_id)
+        if not character:
+            return jsonify({"message": "Character not found."}), 404
+
+        # Handle XP gain
+        if 'xp' in gains:
+            character.xp += gains['xp']
+
+        # Handle skill points gain
+        if 'skill_points' in gains:
+            character.skill_points += gains['skill_points']
+
+        # Handle resource gains
+        if 'resources' in gains:
+            for resource in gains['resources']:
+                resource_id = resource['resource_id']
+                amount = resource['amount']
+                
+                # Check if the character already has the resource and update it
+                char_resource = CharacterResources.query.filter_by(character_id=character_id, resource_id=resource_id).first()
+                if char_resource:
+                    char_resource.quantity += amount
+                else:
+                    # Add new resource if not already present
+                    new_resource = CharacterResources(character_id=character_id, resource_id=resource_id, quantity=amount)
+                    db.session.add(new_resource)
+
+        # Handle resource losses
+        if 'resources' in losses:
+            for resource in losses['resources']:
+                resource_id = resource['resource_id']
+                amount = resource['amount']
+
+                # Check if the character has the resource and update it
+                char_resource = CharacterResources.query.filter_by(character_id=character_id, resource_id=resource_id).first()
+                if char_resource and char_resource.quantity >= amount:
+                    char_resource.quantity -= amount
+                    # Optionally delete resource if quantity becomes zero
+                    if char_resource.quantity == 0:
+                        db.session.delete(char_resource)
+                else:
+                    return jsonify({"error": "Not enough resources to remove."}), 400
+
+        # Commit all changes in one transaction
+        db.session.commit()
+
+        return jsonify({"message": "Task completed successfully."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @admin_bp.route('/')
 def home():
